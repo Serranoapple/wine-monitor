@@ -22,7 +22,8 @@ jobs:
         run: pip install requests beautifulsoup4
 
       - name: Run monitor
+        env:
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         run: python monitor.py
-
-      - name: Show result
-        run: cat state.txt || true
