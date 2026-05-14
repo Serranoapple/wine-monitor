@@ -9,6 +9,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,3 +30,14 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         run: python monitor.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "wine-monitor-bot"
+          git config user.email "bot@github.com"
+
+          git add state.txt
+
+          git diff --cached --quiet || git commit -m "Update wine state"
+
+          git push
