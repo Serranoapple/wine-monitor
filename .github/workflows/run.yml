@@ -3,7 +3,6 @@ name: Wine Monitor
 on:
   schedule:
     - cron: "0 8 * * *"
-    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -23,7 +22,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install -r requirements.txt
 
       - name: Run monitor
         env:
@@ -37,7 +36,7 @@ jobs:
           git config user.name "wine-monitor-bot"
           git config user.email "bot@github.com"
 
-          git add state.txt
+          git add .
 
           git diff --cached --quiet || git commit -m "Update wine state"
 
