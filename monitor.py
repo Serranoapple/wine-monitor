@@ -67,7 +67,7 @@ def extract_pdf_text(pdf_bytes):
         os.remove(tmp_path)
 
     return text
-
+    
 def parse_wines(text):
 
     wines = {}
@@ -81,37 +81,68 @@ def parse_wines(text):
         if len(line) < 10:
             continue
 
-        price_match = re.search(
-            PRICE_REGEX,
-            line,
-            re.IGNORECASE
+        # Find alle tal
+        numbers = re.findall(
+            r'\d[\d\.\s]{1,10}',
+            line
         )
 
-        if not price_match:
+        if not numbers:
+            continue
+
+        # Brug sidste tal som pris
+        raw_price = numbers[-1]
+
+        # Rens pris
+        clean_price = re.sub(
+            r'[^\d]',
+            '',
+            raw_price
+        )
+
+        if not clean_price:
             continue
 
         try:
 
-            price = int(price_match.group(1))
-
-            wine_name = re.sub(
-                PRICE_REGEX,
-                "",
-                line
-            ).strip()
-
-            wine_name = re.sub(
-                r'\s+',
-                ' ',
-                wine_name
-            )
-
-            wines[wine_name] = price
+            price = int(clean_price)
 
         except:
-            pass
+            continue
+
+        # Ignorér usandsynlige priser
+        if price < 100 or price > 50000:
+            continue
+
+        # Fjern pris fra navn
+        wine_name = line.replace(
+            raw_price,
+            ""
+        ).strip()
+
+        # Fjern dobbelte spaces
+        wine_name = re.sub(
+            r'\s+',
+            ' ',
+            wine_name
+        )
+
+        # Fjern ensomme årstal i starten
+        wine_name = re.sub(
+            r'^(19|20)\d{2}\s+',
+            '',
+            wine_name
+        )
+
+        # Ignorér korte navne
+        if len(wine_name) < 5:
+            continue
+
+        wines[wine_name] = price
 
     return wines
+
+
 
 def load_state():
 
