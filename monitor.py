@@ -18,7 +18,6 @@ EMAIL_FROM = os.environ["EMAIL_FROM"]
 EMAIL_TO = os.environ["EMAIL_TO"]
 EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
 
-PRICE_REGEX = r'(\d{2,5})\s*kr'
 
 def send_email(subject, body):
 
@@ -38,6 +37,7 @@ def send_email(subject, body):
         )
 
         server.send_message(msg)
+
 
 def extract_pdf_text(pdf_bytes):
 
@@ -67,7 +67,8 @@ def extract_pdf_text(pdf_bytes):
         os.remove(tmp_path)
 
     return text
-    
+
+
 def parse_wines(text):
 
     wines = {}
@@ -143,7 +144,6 @@ def parse_wines(text):
     return wines
 
 
-
 def load_state():
 
     if not os.path.exists(STATE_FILE):
@@ -151,6 +151,7 @@ def load_state():
 
     with open(STATE_FILE, "r") as f:
         return json.load(f)
+
 
 def save_state(state):
 
@@ -160,6 +161,7 @@ def save_state(state):
             f,
             indent=2
         )
+
 
 # Hent hjemmeside
 html = requests.get(
@@ -226,7 +228,7 @@ for pdf_url in pdf_links:
             if wine not in old_wines:
 
                 added.append(
-                    f"+ {wine} — {price} kr."
+                    f"• {wine} — {price:,} kr."
                 )
 
         # Fjernede vine
@@ -235,7 +237,7 @@ for pdf_url in pdf_links:
             if wine not in wines:
 
                 removed.append(
-                    f"- {wine}"
+                    f"• {wine}"
                 )
 
         # Prisændringer
@@ -248,21 +250,28 @@ for pdf_url in pdf_links:
                 if old_price != price:
 
                     changed.append(
-                        f"~ {wine}\n"
-                        f"  {old_price} → {price} kr."
+                        f"• {wine}\n"
+                        f"  {old_price:,} → {price:,} kr."
                     )
 
         if added or removed or changed:
 
+            pdf_name = (
+                pdf_url
+                .split("/")[-1]
+                .replace(".pdf", "")
+                .replace("_", " ")
+            )
+
             report.append(
                 f"\n🍷 ÆNDRINGER\n"
-                f"📄 {pdf_url}\n"
+                f"📄 {pdf_name}\n"
             )
 
             if added:
 
                 report.append(
-                    "\nNYE VINE"
+                    "\n🆕 NYE VINE"
                 )
 
                 report.extend(
@@ -272,7 +281,7 @@ for pdf_url in pdf_links:
             if changed:
 
                 report.append(
-                    "\nPRISÆNDRINGER"
+                    "\n💰 PRISÆNDRINGER"
                 )
 
                 report.extend(
@@ -282,7 +291,7 @@ for pdf_url in pdf_links:
             if removed:
 
                 report.append(
-                    "\nFJERNEDE"
+                    "\n❌ FJERNEDE"
                 )
 
                 report.extend(
