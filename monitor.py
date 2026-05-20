@@ -21,7 +21,7 @@ EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
 
 def send_email(subject, body):
 
-    msg = MIMEText(body)
+    msg = MIMEText(body, "plain", "utf-8")
 
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM
@@ -69,6 +69,30 @@ def extract_pdf_text(pdf_bytes):
     return text
 
 
+def clean_wine_name(name):
+
+    # Fjern ekstra spacing
+    name = re.sub(
+        r'\s+',
+        ' ',
+        name
+    )
+
+    # Fjern årgang i starten
+    name = re.sub(
+        r'^(19|20)\d{2}\s+',
+        '',
+        name
+    )
+
+    # Fjern mærkelige tegn
+    name = name.strip(
+        " -–—|:"
+    )
+
+    return name.strip()
+
+
 def parse_wines(text):
 
     wines = {}
@@ -79,63 +103,80 @@ def parse_wines(text):
 
         line = line.strip()
 
-        if len(line) < 10:
+        if len(line) < 15:
             continue
 
-        # Find alle tal
-        numbers = re.findall(
-            r'\d[\d\.\s]{1,10}',
+        # Ignorér tydelige overskrifter
+        upper = line.upper()
+
+        if upper in [
+            "HVIDVIN",
+            "RØDVIN",
+            "BOBLER",
+            "CHAMPAGNE",
+            "SØDT",
+            "AVEC"
+        ]:
+            continue
+
+        # Find alle talblokke
+        matches = re.findall(
+            r'[\d\.,]+',
             line
         )
 
-        if not numbers:
+        if not matches:
             continue
 
-        # Brug sidste tal som pris
-        raw_price = numbers[-1]
+        possible_prices = []
 
-        # Rens pris
-        clean_price = re.sub(
-            r'[^\d]',
-            '',
-            raw_price
+        for m in matches:
+
+            clean = re.sub(
+                r'[^\d]',
+                '',
+                m
+            )
+
+            if not clean:
+                continue
+
+            try:
+
+                num = int(clean)
+
+            except:
+                continue
+
+            # Ignorér årgange
+            if 1900 <= num <= 2030:
+                continue
+
+            # Sandsynlig pris
+            if 100 <= num <= 50000:
+
+                possible_prices.append(
+                    (num, m)
+                )
+
+        if not possible_prices:
+            continue
+
+        # Brug største pris som sandsynlig pris
+        price, raw_price = max(
+            possible_prices,
+            key=lambda x: x[0]
         )
 
-        if not clean_price:
-            continue
-
-        try:
-
-            price = int(clean_price)
-
-        except:
-            continue
-
-        # Ignorér usandsynlige priser
-        if price < 100 or price > 50000:
-            continue
-
-        # Fjern pris fra navn
         wine_name = line.replace(
             raw_price,
             ""
-        ).strip()
+        )
 
-        # Fjern dobbelte spaces
-        wine_name = re.sub(
-            r'\s+',
-            ' ',
+        wine_name = clean_wine_name(
             wine_name
         )
 
-        # Fjern ensomme årstal i starten
-        wine_name = re.sub(
-            r'^(19|20)\d{2}\s+',
-            '',
-            wine_name
-        )
-
-        # Ignorér korte navne
         if len(wine_name) < 5:
             continue
 
@@ -149,18 +190,56 @@ def load_state():
     if not os.path.exists(STATE_FILE):
         return {}
 
-    with open(STATE_FILE, "r") as f:
+    with open(
+        STATE_FILE,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
         return json.load(f)
 
 
 def save_state(state):
 
-    with open(STATE_FILE, "w") as f:
+    with open(
+        STATE_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
         json.dump(
             state,
             f,
-            indent=2
+            indent=2,
+            ensure_ascii=False
         )
+
+
+def get_pretty_pdf_name(pdf_url):
+
+    pdf_name = (
+        pdf_url
+        .split("/")[-1]
+        .replace(".pdf", "")
+    )
+
+    pdf_name = requests.utils.unquote(
+        pdf_name
+    )
+
+    if "HVIDVIN" in pdf_name.upper():
+        return "HVIDVIN"
+
+    elif "RØD" in pdf_name.upper():
+        return "ROSÉ & RØDVIN"
+
+    elif "BOBLER" in pdf_name.upper():
+        return "BOBLER & SØDT"
+
+    elif "AVEC" in pdf_name.upper():
+        return "AVEC"
+
+    return pdf_name
 
 
 # Hent hjemmeside
@@ -191,6 +270,13 @@ for a in soup.find_all("a"):
 
         pdf_links.append(href)
 
+# Fjern dubletter
+pdf_links = list(
+    dict.fromkeys(pdf_links)
+)
+
+print(f"Fundet PDF'er: {len(pdf_links)}")
+
 # Load tidligere state
 old_state = load_state()
 
@@ -202,14 +288,20 @@ for pdf_url in pdf_links:
 
     try:
 
+        print(f"Scanner: {pdf_url}")
+
         pdf_data = requests.get(
             pdf_url,
             timeout=30
         ).content
 
-        text = extract_pdf_text(pdf_data)
+        text = extract_pdf_text(
+            pdf_data
+        )
 
-        wines = parse_wines(text)
+        wines = parse_wines(
+            text
+        )
 
         new_state[pdf_url] = wines
 
@@ -232,7 +324,7 @@ for pdf_url in pdf_links:
                 )
 
         # Fjernede vine
-        for wine, price in old_wines.items():
+        for wine in old_wines:
 
             if wine not in wines:
 
@@ -256,16 +348,17 @@ for pdf_url in pdf_links:
 
         if added or removed or changed:
 
-            pdf_name = (
+            pdf_name = get_pretty_pdf_name(
                 pdf_url
-                .split("/")[-1]
-                .replace(".pdf", "")
-                .replace("_", " ")
             )
 
             report.append(
-                f"\n🍷 ÆNDRINGER\n"
-                f"📄 {pdf_name}\n"
+                "\n"
+                + "=" * 50
+            )
+
+            report.append(
+                f"\n🍷 {pdf_name}\n"
             )
 
             if added:
@@ -275,7 +368,7 @@ for pdf_url in pdf_links:
                 )
 
                 report.extend(
-                    added[:20]
+                    added[:25]
                 )
 
             if changed:
@@ -285,7 +378,7 @@ for pdf_url in pdf_links:
                 )
 
                 report.extend(
-                    changed[:20]
+                    changed[:25]
                 )
 
             if removed:
@@ -295,7 +388,7 @@ for pdf_url in pdf_links:
                 )
 
                 report.extend(
-                    removed[:20]
+                    removed[:25]
                 )
 
             report.append(
@@ -305,15 +398,22 @@ for pdf_url in pdf_links:
     except Exception as e:
 
         report.append(
-            f"\nFEJL:\n"
-            f"{pdf_url}\n"
-            f"{str(e)}\n"
+            "\n"
+            + "=" * 50
+        )
+
+        report.append(
+            f"\nFEJL I:\n{pdf_url}\n"
+        )
+
+        report.append(
+            str(e)
         )
 
 # Gem ny state
 save_state(new_state)
 
-# Send mail
+# Send mail hvis ændringer
 if report:
 
     body = "\n".join(report)
