@@ -39,7 +39,13 @@ def send_email(subject, body):
         server.send_message(msg)
 
 
-def extract_pdf_text(pdf_bytes):
+def format_price(price):
+
+    # 1495 -> 1.495
+    return f"{price:,}".replace(",", ".")
+
+
+def extract_pdf_text(pdf_bytes, pdf_url):
 
     with tempfile.NamedTemporaryFile(
         delete=False,
@@ -66,7 +72,68 @@ def extract_pdf_text(pdf_bytes):
 
         os.remove(tmp_path)
 
-    return text
+    upper_url = pdf_url.upper()
+
+    # Filtrér relevante sektioner
+    if "HVIDVIN" in upper_url:
+
+        start_keywords = [
+            "HVIDVIN"
+        ]
+
+        stop_keywords = [
+            "RØDVIN",
+            "ROSÉ",
+            "AVEC"
+        ]
+
+    elif "RØD" in upper_url:
+
+        start_keywords = [
+            "RØDVIN",
+            "ROSÉ"
+        ]
+
+        stop_keywords = [
+            "AVEC"
+        ]
+
+    elif "BOBLER" in upper_url:
+
+        start_keywords = [
+            "CHAMPAGNE",
+            "BOBLER"
+        ]
+
+        stop_keywords = [
+            "HVIDVIN",
+            "RØDVIN"
+        ]
+
+    else:
+
+        return text
+
+    lines = text.splitlines()
+
+    filtered = []
+
+    active = False
+
+    for line in lines:
+
+        upper = line.upper()
+
+        if any(k in upper for k in start_keywords):
+            active = True
+
+        if any(k in upper for k in stop_keywords):
+            active = False
+
+        if active:
+            filtered.append(line)
+
+    return "\n".join(filtered)
 
 
 def clean_wine_name(name):
@@ -78,10 +145,10 @@ def clean_wine_name(name):
         name
     )
 
-    # Fjern årgang i starten
+    # Fix spacing omkring årstal
     name = re.sub(
-        r'^(19|20)\d{2}\s+',
-        '',
+        r'((19|20)\d{2})([A-Z])',
+        r'\1 \3',
         name
     )
 
@@ -106,12 +173,13 @@ def parse_wines(text):
         if len(line) < 15:
             continue
 
-        # Ignorér tydelige overskrifter
         upper = line.upper()
 
+        # Ignorér overskrifter
         if upper in [
             "HVIDVIN",
             "RØDVIN",
+            "ROSÉ",
             "BOBLER",
             "CHAMPAGNE",
             "SØDT",
@@ -152,7 +220,7 @@ def parse_wines(text):
             if 1900 <= num <= 2030:
                 continue
 
-            # Sandsynlig pris
+            # Sandsynlige priser
             if 100 <= num <= 50000:
 
                 possible_prices.append(
@@ -162,7 +230,7 @@ def parse_wines(text):
         if not possible_prices:
             continue
 
-        # Brug største pris som sandsynlig pris
+        # Brug største tal som pris
         price, raw_price = max(
             possible_prices,
             key=lambda x: x[0]
@@ -190,13 +258,19 @@ def load_state():
     if not os.path.exists(STATE_FILE):
         return {}
 
-    with open(
-        STATE_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
+    try:
 
-        return json.load(f)
+        with open(
+            STATE_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            return json.load(f)
+
+    except:
+
+        return {}
 
 
 def save_state(state):
@@ -227,16 +301,18 @@ def get_pretty_pdf_name(pdf_url):
         pdf_name
     )
 
-    if "HVIDVIN" in pdf_name.upper():
+    upper = pdf_name.upper()
+
+    if "HVIDVIN" in upper:
         return "HVIDVIN"
 
-    elif "RØD" in pdf_name.upper():
+    elif "RØD" in upper:
         return "ROSÉ & RØDVIN"
 
-    elif "BOBLER" in pdf_name.upper():
+    elif "BOBLER" in upper:
         return "BOBLER & SØDT"
 
-    elif "AVEC" in pdf_name.upper():
+    elif "AVEC" in upper:
         return "AVEC"
 
     return pdf_name
@@ -277,7 +353,7 @@ pdf_links = list(
 
 print(f"Fundet PDF'er: {len(pdf_links)}")
 
-# Load tidligere state
+# Load state
 old_state = load_state()
 
 new_state = {}
@@ -296,7 +372,8 @@ for pdf_url in pdf_links:
         ).content
 
         text = extract_pdf_text(
-            pdf_data
+            pdf_data,
+            pdf_url
         )
 
         wines = parse_wines(
@@ -320,7 +397,7 @@ for pdf_url in pdf_links:
             if wine not in old_wines:
 
                 added.append(
-                    f"• {wine} — {price:,} kr."
+                    f"• {wine} — {format_price(price)} kr."
                 )
 
         # Fjernede vine
@@ -343,7 +420,8 @@ for pdf_url in pdf_links:
 
                     changed.append(
                         f"• {wine}\n"
-                        f"  {old_price:,} → {price:,} kr."
+                        f"  {format_price(old_price)} → "
+                        f"{format_price(price)} kr."
                     )
 
         if added or removed or changed:
